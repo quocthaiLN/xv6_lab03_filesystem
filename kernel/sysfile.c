@@ -328,6 +328,31 @@ sys_open(void)
       return -1;
     }
     ilock(ip);
+    if (ip->type == T_SYMLINK && !(omode & O_NOFOLLOW))
+    {
+      int depth = 0;
+      while (ip->type == T_SYMLINK)
+      {
+        if (depth >= 10 || readi(ip, 0, (uint64)path, 0, sizeof(path)) <= 0)
+        {
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+
+        iunlockput(ip);
+
+        if ((ip = namei(path)) == 0)
+        {
+          end_op();
+          return -1;
+        }
+
+        ilock(ip);
+
+        depth++;
+      }
+    }
     if(ip->type == T_DIR && omode != O_RDONLY){
       iunlockput(ip);
       end_op();
@@ -501,5 +526,38 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char path[MAXPATH], target[MAXPATH]; // Cac tham so dau vao
+  struct inode *ip;                    // Inode pointer
+
+  // Kiem tra dau vao
+  if (argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+
+  // Thao tac ghi vao inode
+  begin_op();
+  ip = create(path, T_SYMLINK, 0, 0); // Tao 1 inode va khoa no de danh dau inode dang su dung
+  if (ip == 0)
+  {
+    end_op();
+    return -1;
+  }
+
+  if (writei(ip, 0, (uint64)target, 0, sizeof(target)) != sizeof(target))
+  {
+    iunlockput(ip); // Mo khoa inode
+    end_op();
+
+    return -1;
+  }
+
+  iunlockput(ip); // Mo khoa inode
+  end_op();
+
   return 0;
 }
